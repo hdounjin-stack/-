@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Counter</title>
+<style>
+  :root{
+    --bg: #E7E2F5;
+    --fg: #FFFFFF;
+    --btn-opacity: 0.32;
+    --sheet-tint: #ffffff;
+    --sheet-text: #ffffff;
+    --font-size: 21vw;
+    --space: 22px;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{
+    height: 100%;
+    margin: 0;
+    overscroll-behavior: none;
+    background: var(--bg);
+  }
+  html{ scroll-padding-top: env(safe-area-inset-top, 0px); }
+
+  body{
+    height: 100dvh;
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    transition: background-color 0.4s ease, color 0.4s ease;
+  }
+
+  #main{
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  #counter{
+    font-size: var(--font-size);
+    font-weight: 250;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+    pointer-events: none;
+    transition: transform 0.12s ease;
+    text-align: center;
+  }
+  #counter.pulse{ transform: scale(1.06); }
+
+  @media (prefers-reduced-motion: reduce){
+    #counter{ transition: none; }
+    #counter.pulse{ transform: none; }
+  }
+
+  .controls{
+    position: fixed;
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    gap: 14px;
+    z-index: 5;
+  }
+  .controls.left{ left: calc(20px + env(safe-area-inset-left, 0px)); }
+  .controls.right{ right: calc(20px + env(safe-area-inset-right, 0px)); }
+
+  .ctrl-btn{
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: currentColor;
+    color: var(--fg);
+    opacity: var(--btn-opacity);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: opacity 0.2s ease, transform 0.15s ease;
+  }
+  .ctrl-btn:active{ opacity: 0.6; transform: scale(0.93); }
+  .ctrl-btn svg{
+    width: 17px;
+    height: 17px;
+    display: block;
+  }
+  /* icon color = background color so it reads as an outline on the fg circle */
+  .ctrl-btn svg *{ stroke: var(--bg); }
+
+  .ctrl-btn.reset-armed{ opacity: 0.75; }
+
+  /* Settings sheet */
+  #overlay{
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.28);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 10;
+  }
+  #overlay.open{ opacity: 1; pointer-events: auto; }
+
+  #sheet{
+    position: fixed;
+    left: 12.5%;
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--sheet-tint) 32%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    backdrop-filter: blur(20px) saturate(150%);
+    color: var(--sheet-text);
+    border-radius: 24px;
+    padding: 10px 20px 18px;
+    z-index: 11;
+    max-height: 68dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    font-size: 15px;
+    transform-origin: center center;
+    opacity: 0;
+    transform: scale(0.001);
+    pointer-events: none;
+    /* Fallback transition; openOriginMorph/closeOriginMorph set their own
+       inline transition to drive the precise origin-morph animation. */
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  #sheet.visible{ pointer-events: auto; opacity: 1; }
+
+  .morph-content{
+    opacity: 1;
+    transform: none;
+  }
+  .morph-content.content-hidden{
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    #sheet{ transition: opacity 0.15s ease, transform 0.15s ease; }
+  }
+
+  .grabber{
+    width: 36px; height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--sheet-text) 25%, transparent);
+    margin: 10px auto 18px;
+  }
+
+  .row{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    row-gap: 10px;
+    column-gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--sheet-text) 10%, transparent);
+  }
+  .row:last-of-type{ border-bottom: none; }
+  .row label{
+    text-align: left;
+    font-weight: 500;
+    color: var(--sheet-text);
+    opacity: 0.9;
+  }
+
+  /* Rows whose control needs room (segmented pickers): let the control
+     drop to its own full-width line instead of getting squeezed. */
+  .row.stack{ align-items: flex-start; }
+  .row.stack .seg{ flex: 1 1 100%; }
+
+  .section-title{
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--sheet-text) 62%, transparent);
+    margin: 24px 0 8px;
+  }
+  .section-title:first-child{ margin-top: 6px; }
+
+  input[type="number"]{
+    background: color-mix(in srgb, var(--sheet-text) 10%, transparent);
+    border: none;
+    border-radius: 9px;
+    color: var(--sheet-text);
+    padding: 9px 12px;
+    width: 100px;
+    font-size: 16px;
+    text-align: right;
+    flex: 0 0 auto;
+  }
+
+  .seg{
+    display: flex;
+    gap: 4px;
+    background: color-mix(in srgb, var(--sheet-text) 10%, transparent);
+    border-radius: 10px;
+    padding: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .seg button{
+    border: none;
+    background: transparent;
+    color: color-mix(in srgb, var(--sheet-text) 62%, transparent);
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    flex: 1 1 0;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  /* Selected chip: always crisp, high-contrast white/dark regardless of
+     theme, so the active choice is unmistakable at a glance. */
+  .seg button.active{
+    background: #FFFFFF;
+    color: #1A1A1A;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  }
+
+  .swatches{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 10px 0 4px;
+  }
+  .swatch{
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    padding: 0;
+  }
+  .swatch.selected{ border-color: color-mix(in srgb, var(--sheet-text) 70%, transparent); }
+
+  input[type="color"]{
+    -webkit-appearance: none;
+    width: 34px; height: 34px;
+    border: none;
+    border-radius: 50%;
+    overflow: hidden;
+    padding: 0;
+    background: none;
+  }
+  input[type="color"]::-webkit-color-swatch-wrapper{ padding: 0; }
+  input[type="color"]::-webkit-color-swatch{ border: none; border-radius: 50%; }
+
+  .toggle{
+    position: relative;
+    width: 46px; height: 27px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--sheet-text) 16%, transparent);
+    border: none;
+    padding: 0;
+  }
+  .toggle.on{ background: #34c759; }
+  .toggle::after{
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 23px; height: 23px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s ease;
+  }
+  .toggle.on::after{ transform: translateX(19px); }
+
+  .pill-btn{
+    border: none;
+    background: color-mix(in srgb, var(--sheet-text) 12%, transparent);
+    color: var(--sheet-text);
+    padding: 9px 18px;
+    border-radius: 999px;
+    font-size: 14px;
+  }
+  .pill-btn:active{ background: color-mix(in srgb, var(--sheet-text) 20%, transparent); }
+  .pill-btn.busy{ opacity: 0.6; }
+
+  .update-status{
+    font-size: 12px;
+    opacity: 0.55;
+    text-align: right;
+    min-height: 16px;
+    margin-top: 2px;
+  }
+
+  #closeSheet{
+    display: block;
+    margin: 22px auto 0;
+    background: none;
+    border: none;
+    color: color-mix(in srgb, var(--sheet-text) 55%, transparent);
+    font-size: 15px;
+    padding: 10px;
+  }
+
+  .sr-only{
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div id="main" role="button" aria-label="Tap to increment counter" tabindex="0">
+  <div id="counter" aria-live="polite">0</div>
+</div>
+
+<div class="controls left">
+  <button class="ctrl-btn" id="resetBtn" aria-label="Reset count to zero">
+    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke-width="2"/><circle cx="12" cy="12" r="2.6" style="fill:var(--bg);" stroke="none"/></svg>
+  </button>
+  <button class="ctrl-btn" id="decBtn" aria-label="Decrease count by one">
+    <svg viewBox="0 0 24 24" fill="none"><line x1="5" y1="12" x2="19" y2="12" stroke-width="2.2" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<div class="controls right">
+  <button class="ctrl-btn" id="settingsBtn" aria-label="Open settings">
+    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke-width="1.8"/><line x1="12" y1="10.3" x2="12" y2="16.4" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7.4" r="1.15" style="fill:var(--bg);" stroke="none"/></svg>
+  </button>
+</div>
+
+<div id="overlay"></div>
+<div id="sheet" role="dialog" aria-label="Settings" aria-modal="true">
+  <div class="grabber"></div>
+
+  <div id="sheetContent" class="morph-content">
+  <div class="section-title">Target</div>
+  <div class="row">
+    <label for="targetInput">Goal count</label>
+    <input type="number" id="targetInput" placeholder="none" min="0" step="1" inputmode="numeric" aria-label="Target count, milestones repeat at each multiple">
+  </div>
+
+  <div class="section-title">Milestone alert</div>
+  <div class="row stack">
+    <label id="alertLabel">On reaching target</label>
+    <div class="seg" id="alertSeg" role="group" aria-labelledby="alertLabel">
+      <button data-alert="none">None</button>
+      <button data-alert="vibrate">Vibrate</button>
+      <button data-alert="sound">Sound</button>
+      <button data-alert="both">Both</button>
+    </div>
+  </div>
+
+  <div class="section-title">Background</div>
+  <div class="row" style="border-bottom:none; padding-bottom:0;">
+    <div class="swatches" id="swatches" role="group" aria-label="Background color presets"></div>
+  </div>
+  <div class="row">
+    <label for="customColor">Custom color</label>
+    <input type="color" id="customColor" aria-label="Custom background color">
+  </div>
+
+  <div class="section-title">Text</div>
+  <div class="row stack">
+    <label id="textLabel">Counter color</label>
+    <div class="seg" id="textSeg" role="group" aria-labelledby="textLabel">
+      <button data-text="auto">Auto</button>
+      <button data-text="light">Light</button>
+      <button data-text="dark">Dark</button>
+    </div>
+  </div>
+
+  <div class="section-title">App version</div>
+  <div class="row" style="border-bottom:none;">
+    <label id="updateLabel">Check for a newer version</label>
+    <button id="updateBtn" class="pill-btn" aria-labelledby="updateLabel">Update</button>
+  </div>
+  <div id="updateStatus" class="update-status" aria-live="polite"></div>
+
+  <button id="closeSheet" aria-label="Close settings">Done</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const PRESETS = [
+    { name: "Lavender", hex: "#E7E2F5" },
+    { name: "Warm beige", hex: "#EDE3D5" },
+    { name: "Light blue", hex: "#DCE9F5" },
+    { name: "Soft green", hex: "#E1EEE1" },
+    { name: "Light gray", hex: "#EDEDED" },
+    { name: "Charcoal", hex: "#2B2B2E" },
+    { name: "Black", hex: "#000000" },
+    { name: "White", hex: "#FFFFFF" }
+  ];
+
+  const el = {
+    counter: document.getElementById("counter"),
+    main: document.getElementById("main"),
+    decBtn: document.getElementById("decBtn"),
+    resetBtn: document.getElementById("resetBtn"),
+    settingsBtn: document.getElementById("settingsBtn"),
+    overlay: document.getElementById("overlay"),
+    sheet: document.getElementById("sheet"),
+    sheetContent: document.getElementById("sheetContent"),
+    closeSheet: document.getElementById("closeSheet"),
+    targetInput: document.getElementById("targetInput"),
+    customColor: document.getElementById("customColor"),
+    swatches: document.getElementById("swatches"),
+    alertSeg: document.getElementById("alertSeg"),
+    textSeg: document.getElementById("textSeg"),
+    updateBtn: document.getElementById("updateBtn"),
+    updateStatus: document.getElementById("updateStatus"),
+  };
+
+  let state = {
+    count: 0,
+    target: 0,
+    alertMode: "vibrate", // none | vibrate | sound | both
+    bg: "#E7E2F5",
+    textMode: "auto" // auto | light | dark
+  };
+
+  let audioCtx = null;
+
+  function loadSettings(){
+    try{
+      const raw = localStorage.getItem("tasbeeh_state");
+      if(raw){
+        const saved = JSON.parse(raw);
+        state = Object.assign(state, saved);
+      }
+    }catch(e){}
+  }
+
+  function saveSettings(){
+    try{
+      localStorage.setItem("tasbeeh_state", JSON.stringify(state));
+    }catch(e){}
+  }
+
+  function relLuminance(hex){
+    const c = hex.replace("#","");
+    const r = parseInt(c.substr(0,2),16)/255;
+    const g = parseInt(c.substr(2,2),16)/255;
+    const b = parseInt(c.substr(4,2),16)/255;
+    const f = v => v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
+    return 0.2126*f(r) + 0.7152*f(g) + 0.0722*f(b);
+  }
+
+  function hexToRgb(hex){
+    const c = hex.replace("#","");
+    return {
+      r: parseInt(c.substr(0,2),16),
+      g: parseInt(c.substr(2,2),16),
+      b: parseInt(c.substr(4,2),16)
+    };
+  }
+
+  function rgbToHex(r,g,b){
+    const h = n => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2,"0");
+    return `#${h(r)}${h(g)}${h(b)}`;
+  }
+
+  // Blends two hex colors the same way the browser composites the
+  // translucent control buttons (weightA of colorA over colorB).
+  function mixHex(colorA, colorB, weightA){
+    const a = hexToRgb(colorA), b = hexToRgb(colorB);
+    return rgbToHex(
+      a.r * weightA + b.r * (1 - weightA),
+      a.g * weightA + b.g * (1 - weightA),
+      a.b * weightA + b.b * (1 - weightA)
+    );
+  }
+
+  // The settings sheet always uses the SAME translucent technique as the
+  // button itself (its fg color, at the button's own opacity) so it reads
+  // as literally the same surface in every case — this must never change
+  // on its own. Text is paired per mode so it stays reliably readable
+  // against that translucent result: a dark bg's white-tinted sheet is
+  // dark-dominant (white text), a light bg's dark-tinted sheet is
+  // light-dominant (dark text).
+  const SHEET_PALETTE = {
+    dark:  { tint: "#FFFFFF", text: "#FFFFFF" }, // page text is light (dark backgrounds)
+    light: { tint: "#1A1A1A", text: "#1A1A1A" }  // page text is dark (light backgrounds)
+  };
+
+  function applyAppearance(){
+    document.documentElement.style.setProperty("--bg", state.bg);
+    let fg;
+    if(state.textMode === "light") fg = "#FFFFFF";
+    else if(state.textMode === "dark") fg = "#1A1A1A";
+    else fg = relLuminance(state.bg) > 0.5 ? "#1A1A1A" : "#FFFFFF";
+    document.documentElement.style.setProperty("--fg", fg);
+
+    const palette = fg === "#FFFFFF" ? SHEET_PALETTE.dark : SHEET_PALETTE.light;
+    document.documentElement.style.setProperty("--sheet-tint", palette.tint);
+    document.documentElement.style.setProperty("--sheet-text", palette.text);
+  }
+
+  function render(){
+    el.counter.textContent = state.count.toString();
+  }
+
+  function pulse(){
+    el.counter.classList.remove("pulse");
+    void el.counter.offsetWidth;
+    el.counter.classList.add("pulse");
+  }
+
+  function triggerVibration(){
+    if("vibrate" in navigator){
+      try{ navigator.vibrate(18); }catch(e){}
+    }
+  }
+
+  function ensureAudio(){
+    if(!audioCtx){
+      try{
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }catch(e){ audioCtx = null; }
+    }
+    if(audioCtx && audioCtx.state === "suspended"){
+      audioCtx.resume().catch(()=>{});
+    }
+  }
+
+  function playBell(){
+    if(!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const master = audioCtx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.linearRampToValueAtTime(0.16, now + 0.012);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+    master.connect(audioCtx.destination);
+
+    // A soft struck-bell tone: fundamental + two gently detuned/inharmonic
+    // partials, each with its own quick decay, blended for warmth.
+    const partials = [
+      { ratio: 1,    gain: 1.0,  decay: 1.5 },
+      { ratio: 2.41, gain: 0.28, decay: 0.9 },
+      { ratio: 3.9,  gain: 0.12, decay: 0.55 }
+    ];
+    const base = 740; // F#5, softer than a bright 880Hz ping
+
+    partials.forEach(p => {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(base * p.ratio, now);
+      g.gain.setValueAtTime(p.gain, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + p.decay);
+      osc.connect(g).connect(master);
+      osc.start(now);
+      osc.stop(now + p.decay + 0.05);
+    });
+  }
+
+  function checkMilestone(newCount){
+    if(!state.target || state.target <= 0) return;
+    if(newCount > 0 && newCount % state.target === 0){
+      if(state.alertMode === "vibrate" || state.alertMode === "both") triggerVibration();
+      if(state.alertMode === "sound" || state.alertMode === "both") playBell();
+    }
+  }
+
+  function incrementCounter(){
+    state.count += 1;
+    render();
+    pulse();
+    checkMilestone(state.count);
+    saveSettings();
+  }
+
+  function decrementCounter(){
+    if(state.count > 0){
+      state.count -= 1;
+      render();
+      saveSettings();
+    }
+  }
+
+  function doReset(){
+    state.count = 0;
+    render();
+    saveSettings();
+  }
+
+  function resetCounter(){
+    doReset();
+  }
+
+  function buildSwatches(){
+    el.swatches.innerHTML = "";
+    PRESETS.forEach(p => {
+      const b = document.createElement("button");
+      b.className = "swatch";
+      b.style.background = p.hex;
+      b.setAttribute("aria-label", p.name);
+      b.dataset.hex = p.hex;
+      b.addEventListener("click", () => {
+        state.bg = p.hex;
+        applyAppearance();
+        markSwatchSelection();
+        saveSettings();
+      });
+      el.swatches.appendChild(b);
+    });
+  }
+
+  function markSwatchSelection(){
+    [...el.swatches.children].forEach(s => {
+      s.classList.toggle("selected", s.dataset.hex.toLowerCase() === state.bg.toLowerCase());
+    });
+  }
+
+  function markSegSelection(groupEl, dataAttr, value){
+    if(!groupEl) return;
+    groupEl.querySelectorAll("button").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute(dataAttr) === value);
+    });
+  }
+
+  function prefersReducedMotion(){
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function getRadiusPx(elem){
+    const r = parseFloat(getComputedStyle(elem).borderTopLeftRadius);
+    return isNaN(r) ? 0 : r;
+  }
+
+  function clearMorphTimers(popup){
+    if(popup._morphTimers){
+      clearTimeout(popup._morphTimers.reveal);
+      clearTimeout(popup._morphTimers.cleanup);
+    }
+    popup._morphTimers = {};
+  }
+
+  function cleanupMorphPanel(popup){
+    // Reset instantly, with no transition, so clearing the inline
+    // open/close styles can't get picked up by the stylesheet's fallback
+    // transition and animate a stray jump to the panel's default position.
+    popup.style.transition = "none";
+    popup.classList.remove("visible");
+    popup.style.transform = "";
+    popup.style.opacity = "";
+    popup.style.borderRadius = "";
+    popup.style.willChange = "";
+    void popup.offsetWidth; // commit the instant reset
+    popup.style.transition = "";
+  }
+
+  // Reusable "true origin morph" transition: the popup's first animation
+  // frame is pixel-exact to the trigger element's rectangle (position,
+  // size, and rendered corner radius), then both rectangles are
+  // interpolated via transform (translate + scaleX/scaleY), which keeps
+  // everything on the compositor (no per-frame layout/reflow). Border
+  // radius is pre-compensated for the anisotropic scale so the rendered
+  // corner matches the trigger exactly, not just approximately.
+  const MORPH_EASE = "cubic-bezier(0.3, 0.9, 0.32, 1.04)"; // one shared, gentle spring for both directions
+  const MORPH_DURATION = 0.4; // seconds, same for open and close so the close feels like an exact reverse
+
+  function openOriginMorph(trigger, popup, overlay){
+    if(popup.classList.contains("visible")) return; // ignore rapid re-taps
+
+    // Capture the trigger's real geometry first, before any DOM mutation.
+    const srcRect = trigger.getBoundingClientRect();
+    const srcRadius = getRadiusPx(trigger);
+
+    clearMorphTimers(popup);
+    if(overlay) overlay.classList.add("open");
+    const content = popup.querySelector(".morph-content");
+    popup.classList.add("visible");
+    popup.style.willChange = "transform, border-radius";
+
+    if(prefersReducedMotion()){
+      popup.style.transition = "opacity 0.15s ease, transform 0.15s ease";
+      popup.style.transform = "none";
+      popup.style.opacity = "1";
+      popup.style.borderRadius = "";
+      if(content) content.classList.remove("content-hidden");
+      return;
+    }
+
+    // Measure the popup's natural final rect/radius (FLIP "last" state).
+    popup.style.transition = "none";
+    popup.style.transform = "none";
+    const dstRect = popup.getBoundingClientRect();
+    const dstRadius = getRadiusPx(popup);
+
+    const scaleX = srcRect.width / dstRect.width;
+    const scaleY = srcRect.height / dstRect.height;
+    const dx = (srcRect.left + srcRect.width / 2) - (dstRect.left + dstRect.width / 2);
+    const dy = (srcRect.top + srcRect.height / 2) - (dstRect.top + dstRect.height / 2);
+
+    // Elliptical radius (h / v) so that once scaled anisotropically it
+    // renders as the trigger's true (circular) corner at frame 0.
+    const startRx = scaleX ? srcRadius / scaleX : srcRadius;
+    const startRy = scaleY ? srcRadius / scaleY : srcRadius;
+
+    // Frame 0: the popup's rectangle IS the trigger's rectangle, exactly.
+    popup.style.opacity = "1";
+    popup.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`;
+    popup.style.borderRadius = `${startRx}px / ${startRy}px`;
+    if(content){
+      content.style.transition = "none";
+      content.classList.add("content-hidden");
+    }
+
+    void popup.offsetWidth; // commit the start frame before transitioning
+
+    popup.style.transition = `transform ${MORPH_DURATION}s ${MORPH_EASE}, border-radius ${MORPH_DURATION}s ${MORPH_EASE}`;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        popup.style.transform = "translate(0px, 0px) scale(1, 1)";
+        popup.style.borderRadius = `${dstRadius}px / ${dstRadius}px`;
+      });
+    });
+
+    if(content){
+      popup._morphTimers.reveal = setTimeout(() => {
+        content.style.transition = "opacity 0.24s ease, transform 0.24s ease";
+        content.classList.remove("content-hidden");
+      }, MORPH_DURATION * 1000 * 0.3);
+    }
+  }
+
+  function closeOriginMorph(trigger, popup, overlay){
+    if(!popup.classList.contains("visible")) return;
+
+    // Fresh trigger geometry (handles scroll/resize while the popup was open).
+    const srcRect = trigger.getBoundingClientRect();
+    const srcRadius = getRadiusPx(trigger);
+
+    clearMorphTimers(popup);
+    if(overlay) overlay.classList.remove("open");
+    const content = popup.querySelector(".morph-content");
+
+    if(prefersReducedMotion()){
+      popup.style.transition = "opacity 0.15s ease, transform 0.15s ease";
+      popup.style.opacity = "0";
+      popup.style.transform = "translateY(10px) scale(0.98)";
+      if(content) content.classList.add("content-hidden");
+      popup._morphTimers.cleanup = setTimeout(() => cleanupMorphPanel(popup), 160);
+      return;
+    }
+
+    const curRect = popup.getBoundingClientRect();
+    const scaleX = srcRect.width / curRect.width;
+    const scaleY = srcRect.height / curRect.height;
+    const dx = (srcRect.left + srcRect.width / 2) - (curRect.left + curRect.width / 2);
+    const dy = (srcRect.top + srcRect.height / 2) - (curRect.top + curRect.height / 2);
+    const endRx = scaleX ? srcRadius / scaleX : srcRadius;
+    const endRy = scaleY ? srcRadius / scaleY : srcRadius;
+
+    if(content){
+      content.style.transition = "opacity 0.12s ease, transform 0.12s ease";
+      content.classList.add("content-hidden");
+    }
+
+    const fadeDuration = MORPH_DURATION * 0.35;
+    const fadeDelay = MORPH_DURATION - fadeDuration;
+    popup.style.transition = `transform ${MORPH_DURATION}s ${MORPH_EASE}, border-radius ${MORPH_DURATION}s ${MORPH_EASE}, opacity ${fadeDuration}s ease ${fadeDelay}s`;
+    requestAnimationFrame(() => {
+      popup.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`;
+      popup.style.borderRadius = `${endRx}px / ${endRy}px`;
+      popup.style.opacity = "0";
+    });
+
+    popup._morphTimers.cleanup = setTimeout(() => cleanupMorphPanel(popup), MORPH_DURATION * 1000 + 20);
+  }
+
+  function openSettings(){
+    el.targetInput.value = state.target || "";
+    el.customColor.value = /^#[0-9a-fA-F]{6}$/.test(state.bg) ? state.bg : "#888888";
+    markSwatchSelection();
+    markSegSelection(el.alertSeg, "data-alert", state.alertMode);
+    markSegSelection(el.textSeg, "data-text", state.textMode);
+    openOriginMorph(el.settingsBtn, el.sheet, el.overlay);
+  }
+
+  function closeSettings(){
+    closeOriginMorph(el.settingsBtn, el.sheet, el.overlay);
+  }
+
+  function simpleHash(str){
+    let h = 5381;
+    for(let i = 0; i < str.length; i++){
+      h = ((h << 5) + h) + str.charCodeAt(i);
+      h = h & h;
+    }
+    return h.toString(36);
+  }
+
+  function setBaselineHashSilently(){
+    fetch(window.location.href, { cache: "no-store" })
+      .then(r => r.text())
+      .then(html => {
+        if(!localStorage.getItem("tasbeeh_page_hash")){
+          localStorage.setItem("tasbeeh_page_hash", simpleHash(html));
+        }
+      })
+      .catch(() => {});
+  }
+
+  function showUpdateStatus(msg){
+    el.updateStatus.textContent = msg;
+  }
+
+  function checkForUpdate(){
+    el.updateBtn.classList.add("busy");
+    el.updateBtn.disabled = true;
+    showUpdateStatus("Checking…");
+    fetch(window.location.href, { cache: "no-store" })
+      .then(r => r.text())
+      .then(html => {
+        const newHash = simpleHash(html);
+        const oldHash = localStorage.getItem("tasbeeh_page_hash");
+        if(oldHash && oldHash === newHash){
+          showUpdateStatus("Already up to date");
+          el.updateBtn.classList.remove("busy");
+          el.updateBtn.disabled = false;
+        } else {
+          localStorage.setItem("tasbeeh_page_hash", newHash);
+          showUpdateStatus("Update found, reloading…");
+          setTimeout(() => { window.location.reload(); }, 500);
+        }
+      })
+      .catch(() => {
+        showUpdateStatus("Couldn't check, reloading…");
+        setTimeout(() => { window.location.reload(); }, 500);
+      });
+  }
+
+  // Wire up events
+  el.main.addEventListener("click", (e) => {
+    ensureAudio();
+    incrementCounter();
+  });
+  el.main.addEventListener("keydown", (e) => {
+    if(e.key === "Enter" || e.key === " "){
+      e.preventDefault();
+      ensureAudio();
+      incrementCounter();
+    }
+  });
+
+  el.decBtn.addEventListener("click", (e) => { e.stopPropagation(); decrementCounter(); });
+  el.resetBtn.addEventListener("click", (e) => { e.stopPropagation(); resetCounter(); });
+  el.settingsBtn.addEventListener("click", (e) => { e.stopPropagation(); openSettings(); });
+  el.overlay.addEventListener("click", closeSettings);
+  el.closeSheet.addEventListener("click", closeSettings);
+  el.updateBtn.addEventListener("click", (e) => { e.stopPropagation(); checkForUpdate(); });
+
+  el.targetInput.addEventListener("input", () => {
+    const v = parseInt(el.targetInput.value, 10);
+    state.target = isNaN(v) || v < 0 ? 0 : v;
+    saveSettings();
+  });
+
+  el.customColor.addEventListener("input", () => {
+    state.bg = el.customColor.value;
+    applyAppearance();
+    markSwatchSelection();
+    saveSettings();
+  });
+
+  document.querySelectorAll(".seg[role='group']").forEach(group => {
+    group.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if(!btn) return;
+      if(btn.hasAttribute("data-alert")){
+        state.alertMode = btn.getAttribute("data-alert");
+        markSegSelection(el.alertSeg, "data-alert", state.alertMode);
+      } else if(btn.hasAttribute("data-text")){
+        state.textMode = btn.getAttribute("data-text");
+        applyAppearance();
+        markSegSelection(el.textSeg, "data-text", state.textMode);
+      }
+      saveSettings();
+    });
+  });
+
+  // Prevent unwanted browser gestures
+  document.addEventListener("touchmove", (e) => {
+    if(e.target.closest && e.target.closest("#sheet")) return; // allow scrolling inside settings
+    e.preventDefault();
+  }, { passive: false });
+  document.addEventListener("dblclick", (e) => { e.preventDefault(); });
+  document.addEventListener("contextmenu", (e) => { e.preventDefault(); });
+
+  // Init
+  loadSettings();
+  buildSwatches();
+  applyAppearance();
+  render();
+  setBaselineHashSilently();
+})();
+</script>
+</body>
+</html>
